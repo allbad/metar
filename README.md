@@ -62,6 +62,30 @@ Then open [http://127.0.0.1:5000](http://127.0.0.1:5000) in your browser.
 
 > **Note:** On first run, the app downloads the OurAirports airport dataset (~6 MB) and caches it locally as `.airports_cache.json`. This is a one-off download; the cache is refreshed automatically once a week.
 
+## Testing
+
+The test suite uses [pytest](https://pytest.org) and covers 94% of the codebase across three test files:
+
+| File | What it tests |
+|---|---|
+| `tests/test_parser.py` | `parse_metar()` with hand-crafted METAR strings and all `fetch_metar()` error paths |
+| `tests/test_app.py` | Flask routes via the test client, with network calls mocked |
+| `tests/test_airports.py` | `search_airports()` ranking and edge cases |
+
+Run the full suite:
+
+```bash
+pytest tests/
+```
+
+Run with coverage:
+
+```bash
+pytest tests/ --cov=metar_parser --cov=app --cov=airports --cov-report=term-missing
+```
+
+No internet connection is required — all network calls are mocked.
+
 ## Data sources
 
 | Source | Purpose |
