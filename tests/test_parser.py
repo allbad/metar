@@ -353,3 +353,166 @@ def test_remarks_not_parsed_as_weather():
     # Tokens after RMK should not bleed into weather fields
     r = parse_metar("METAR KJFK 201756Z 18005KT 10SM CLR 20/10 A3010 RMK AO2 SLP205")
     assert r['weather'] == []
+
+
+# ---------------------------------------------------------------------------
+# Wind — additional unit and edge cases
+# ---------------------------------------------------------------------------
+
+def test_kmh_wind_conversion():
+    # 37 KMH → round(37 / 1.852) = 20 knots
+    r = parse_metar("METAR EGLL 201020Z 18037KMH 9999 NCD 15/10 Q1015")
+    assert r['wind']['speed_kt'] == round(37 / 1.852)
+
+def test_wind_calm_with_nonzero_direction():
+    # 18000KT — direction reported but speed is zero; should be calm
+    r = parse_metar("METAR KJFK 201756Z 18000KT 10SM CLR 20/10 A3010")
+    assert r['wind']['calm'] is True
+
+
+# ---------------------------------------------------------------------------
+# Visibility — combined whole + fraction and RVR
+# ---------------------------------------------------------------------------
+
+def test_combined_whole_fraction_visibility():
+    # "1 1/2SM" spans two tokens and should be parsed as 1.5 miles
+    r = parse_metar("METAR KJFK 201756Z 18005KT 1 1/2SM OVC010 15/10 A2990")
+    assert r['visibility'] == '1.5 miles'
+
+def test_rvr_tokens_collected():
+    # In a real METAR, RVR follows visibility; R28L/1200FT should be stored
+    # in rvr and not bleed into weather or sky fields.
+    r = parse_metar("METAR KJFK 201756Z 18005KT 1/4SM R28L/1200FT OVC010 15/10 A2990")
+    assert len(r['rvr']) == 1
+    assert 'R28L' in r['rvr'][0]
+    assert r['visibility'] == '0.25 miles'
+
+
+# ---------------------------------------------------------------------------
+# Sky — vertical visibility
+# ---------------------------------------------------------------------------
+
+def test_vv_sky_cover():
+    r = parse_metar("METAR KJFK 201756Z 18005KT 1/4SM FG VV004 10/09 A2990")
+    assert r['sky'][0]['cover'] == 'Sky obscured'
+
+def test_vv_sky_altitude():
+    r = parse_metar("METAR KJFK 201756Z 18005KT 1/4SM FG VV004 10/09 A2990")
+    assert r['sky'][0]['altitude_ft'] == 400
+
+
+# ---------------------------------------------------------------------------
+# Weather — proximity, showers, and other phenomena
+# ---------------------------------------------------------------------------
+
+def test_vc_proximity_weather():
+    r = parse_metar("METAR KJFK 201756Z 18005KT 10SM VCRA OVC010 20/10 A3010")
+    assert 'nearby' in r['weather'][0].lower()
+    assert 'rain' in r['weather'][0].lower()
+
+def test_sh_showers_descriptor():
+    # SHRA = rain showers
+    r = parse_metar("METAR KJFK 201756Z 18005KT 5SM SHRA OVC015 15/12 A2990")
+    assert 'rain' in r['weather'][0].lower()
+    assert 'showers' in r['weather'][0].lower()
+
+def test_other_weather_funnel_cloud():
+    r = parse_metar("METAR KJFK 201756Z 18005KT 10SM FC OVC010 20/10 A3010")
+    assert 'funnel' in r['weather'][0].lower()
+
+def test_other_weather_sandstorm():
+    r = parse_metar("METAR KJFK 201756Z 18010KT 1SM SS 25/10 A2980")
+    assert 'sandstorm' in r['weather'][0].lower()
+
+
+# ---------------------------------------------------------------------------
+# Headline — additional branches
+# ---------------------------------------------------------------------------
+
+def test_headline_tornado():
+    r = parse_metar("METAR KJFK 201756Z 18005KT 10SM FC OVC010 20/10 A3010")
+    assert 'tornado' in r['headline'].lower() or 'funnel' in r['headline'].lower()
+
+def test_headline_sandstorm():
+    r = parse_metar("METAR KJFK 201756Z 18010KT 1SM SS 25/10 A2980")
+    assert 'sandstorm' in r['headline'].lower()
+
+def test_headline_heavy_non_thunderstorm():
+    # +RA (heavy rain, no thunderstorm) — headline should use the weather group text
+    r = parse_metar("METAR KJFK 201756Z 18005KT 2SM +RA OVC010 15/12 A2985")
+    assert 'rain' in r['headline'].lower()
+
+def test_headline_very_cold():
+    r = parse_metar("METAR KJFK 201756Z 18005KT 10SM CLR M15/M20 A3010")
+    assert 'very cold' in r['headline']
+
+def test_headline_strong_wind():
+    # 40 KT ≈ 46 mph — should trigger "with strong winds"
+    r = parse_metar("METAR KJFK 201756Z 18040KT 10SM CLR 20/10 A3010")
+    assert 'strong winds' in r['headline']
+
+def test_headline_brisk_wind():
+    # ~20 mph ≈ 17 kt
+    r = parse_metar("METAR KJFK 201756Z 18020KT 10SM CLR 20/10 A3010")
+    assert 'brisk' in r['headline']
+
+
+# ---------------------------------------------------------------------------
+# Feels-like — heat index below humidity threshold
+# ---------------------------------------------------------------------------
+
+def test_heat_index_not_applied_when_humidity_low():
+    # 30°C but very low dewpoint → RH well below 40% → no heat index
+    r = parse_metar("METAR KMIA 201756Z 18005KT 10SM CLR 30/05 A3010")
+    assert r['feels_like_c'] is None
+
+
+# ---------------------------------------------------------------------------
+# fetch_metar — error handling (requests mocked)
+# ---------------------------------------------------------------------------
+
+from unittest.mock import MagicMock, patch
+import requests as _requests
+from metar_parser import fetch_metar
+
+
+def test_fetch_metar_connection_error():
+    with patch('metar_parser.requests.get', side_effect=_requests.exceptions.ConnectionError):
+        raw, err = fetch_metar('EGLL')
+    assert raw is None
+    assert 'connect' in err.lower()
+
+def test_fetch_metar_timeout():
+    with patch('metar_parser.requests.get', side_effect=_requests.exceptions.Timeout):
+        raw, err = fetch_metar('EGLL')
+    assert raw is None
+    assert 'timed out' in err.lower()
+
+def test_fetch_metar_http_error():
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.side_effect = _requests.exceptions.HTTPError('404')
+    with patch('metar_parser.requests.get', return_value=mock_resp):
+        raw, err = fetch_metar('EGLL')
+    assert raw is None
+    assert 'error' in err.lower()
+
+def test_fetch_metar_empty_response():
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.text = '   '
+    with patch('metar_parser.requests.get', return_value=mock_resp):
+        raw, err = fetch_metar('ZZZZ')
+    assert raw is None
+    assert 'ZZZZ' in err
+
+def test_fetch_metar_returns_last_line_of_multiline_response():
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.text = (
+        'METAR EGLL 201020Z 04006KT CAVOK 09/04 Q1023\n'
+        'METAR EGLL 200950Z 05006KT CAVOK 08/04 Q1023\n'
+    )
+    with patch('metar_parser.requests.get', return_value=mock_resp):
+        raw, err = fetch_metar('EGLL')
+    assert err is None
+    assert '200950Z' in raw
