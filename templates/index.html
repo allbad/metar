@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>METAR Reader</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f0f4f8;
+      color: #1a202c;
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #1a365d;
+      letter-spacing: -0.5px;
+    }
+
+    header p {
+      margin-top: 0.4rem;
+      color: #4a5568;
+      font-size: 0.95rem;
+    }
+
+    /* Search form */
+    .search-form {
+      background: #fff;
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      margin-bottom: 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      position: relative;
+    }
+
+    .field-group label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #718096;
+    }
+
+    .field-group input {
+      padding: 0.7rem 1rem;
+      border: 2px solid #cbd5e0;
+      border-radius: 8px;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.15s;
+      background: #fff;
+      width: 100%;
+    }
+
+    .field-group input:focus {
+      border-color: #3182ce;
+    }
+
+    #airport-name-input {
+      font-size: 1rem;
+    }
+
+    #airport-code-input {
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      font-size: 1.1rem;
+    }
+
+    .form-row {
+      display: flex;
+      gap: 0.75rem;
+      align-items: flex-end;
+    }
+
+    .form-row .field-group {
+      flex: 1;
+    }
+
+    .form-row button {
+      padding: 0.7rem 1.5rem;
+      background: #2b6cb0;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      white-space: nowrap;
+      height: 44px;
+    }
+
+    .form-row button:hover {
+      background: #2c5282;
+    }
+
+    /* Autocomplete dropdown */
+    .autocomplete-dropdown {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: #fff;
+      border: 1px solid #cbd5e0;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+      z-index: 100;
+      overflow: hidden;
+    }
+
+    .autocomplete-dropdown.hidden {
+      display: none;
+    }
+
+    .ac-item {
+      padding: 0.65rem 1rem;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      border-bottom: 1px solid #f0f4f8;
+    }
+
+    .ac-item:last-child {
+      border-bottom: none;
+    }
+
+    .ac-item:hover,
+    .ac-item.active {
+      background: #ebf8ff;
+    }
+
+    .ac-item-name {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #2d3748;
+    }
+
+    .ac-item-city {
+      font-size: 0.8rem;
+      color: #718096;
+      margin-top: 1px;
+    }
+
+    .ac-item-code {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #2b6cb0;
+      font-family: "Courier New", Courier, monospace;
+      white-space: nowrap;
+    }
+
+    .ac-no-results {
+      padding: 0.75rem 1rem;
+      color: #718096;
+      font-size: 0.9rem;
+    }
+
+    /* Error */
+    .error-box {
+      background: #fff5f5;
+      border: 1px solid #fc8181;
+      border-left: 4px solid #e53e3e;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      color: #742a2a;
+      margin-bottom: 1.5rem;
+    }
+
+    /* Headline card */
+    .headline-card {
+      background: #2b6cb0;
+      color: #fff;
+      border-radius: 12px;
+      padding: 1.5rem 1.75rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .headline-card .station {
+      font-size: 0.85rem;
+      opacity: 0.8;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 0.25rem;
+    }
+
+    .headline-card .headline-text {
+      font-size: 1.6rem;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .headline-card .obs-time {
+      margin-top: 0.5rem;
+      font-size: 0.85rem;
+      opacity: 0.75;
+    }
+
+    /* Weather grid */
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+
+    @media (max-width: 500px) {
+      .grid { grid-template-columns: 1fr; }
+      .form-row { flex-direction: column; }
+      .form-row button { width: 100%; }
+    }
+
+    /* Cards */
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    .card.full-width {
+      grid-column: 1 / -1;
+    }
+
+    .card-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #718096;
+      margin-bottom: 0.5rem;
+    }
+
+    .card-value {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: #2d3748;
+      line-height: 1.4;
+    }
+
+    .card-sub {
+      font-size: 0.85rem;
+      color: #718096;
+      margin-top: 0.25rem;
+    }
+
+    /* Temperature card specifics */
+    .temp-big {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #2d3748;
+    }
+
+    .temp-unit {
+      font-size: 1rem;
+      color: #718096;
+      font-weight: 400;
+    }
+
+    /* Sky layers list */
+    .sky-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .sky-list li {
+      font-size: 1rem;
+      font-weight: 500;
+      color: #2d3748;
+    }
+
+    .sky-list li span {
+      font-size: 0.85rem;
+      color: #718096;
+      font-weight: 400;
+    }
+
+    /* Raw METAR */
+    .raw-section {
+      margin-top: 1.5rem;
+    }
+
+    .raw-section summary {
+      cursor: pointer;
+      font-size: 0.85rem;
+      color: #718096;
+      user-select: none;
+      padding: 0.4rem 0;
+    }
+
+    .raw-section summary:hover {
+      color: #4a5568;
+    }
+
+    .raw-metar {
+      margin-top: 0.5rem;
+      background: #edf2f7;
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.9rem;
+      color: #2d3748;
+      word-break: break-all;
+    }
+
+    /* Calm wind badge */
+    .badge {
+      display: inline-block;
+      background: #ebf8ff;
+      color: #2b6cb0;
+      border-radius: 20px;
+      padding: 0.15rem 0.6rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-top: 0.25rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>METAR Reader</h1>
+      <p>Search by airport name or enter a code directly to get the latest weather.</p>
+    </header>
+
+    <form class="search-form" method="post" id="main-form">
+
+      <!-- Airport name autocomplete -->
+      <div class="field-group" id="name-field">
+        <label for="airport-name-input">Airport name</label>
+        <input
+          type="text"
+          id="airport-name-input"
+          name="airport_name"
+          placeholder="e.g. Heathrow, Kennedy, Sydney"
+          value="{{ airport_name }}"
+          autocomplete="off"
+        >
+        <div class="autocomplete-dropdown hidden" id="ac-dropdown" role="listbox"></div>
+      </div>
+
+      <!-- ICAO code + submit -->
+      <div class="form-row">
+        <div class="field-group">
+          <label for="airport-code-input">Airport code (ICAO / IATA)</label>
+          <input
+            type="text"
+            id="airport-code-input"
+            name="airport"
+            placeholder="e.g. EGLL"
+            value="{{ airport_code }}"
+            maxlength="4"
+            autocomplete="off"
+          >
+        </div>
+        <button type="submit">Get Weather</button>
+      </div>
+
+    </form>
+
+    {% if error %}
+    <div class="error-box">{{ error }}</div>
+    {% endif %}
+
+    {% if result %}
+
+    <!-- Headline -->
+    <div class="headline-card">
+      <div class="station">{{ result.station }}</div>
+      <div class="headline-text">{{ result.headline }}</div>
+      {% if result.datetime_str %}
+      <div class="obs-time">Observed {{ result.datetime_str }}</div>
+      {% endif %}
+      {% if result.auto %}
+      <div class="obs-time">Automated observation (no human observer)</div>
+      {% endif %}
+    </div>
+
+    <div class="grid">
+
+      <!-- Temperature -->
+      <div class="card">
+        <div class="card-label">Temperature</div>
+        {% if result.temp_c is not none %}
+        <div class="temp-big">
+          {{ result.temp_c }}<span class="temp-unit">&deg;C</span>
+          &nbsp;/&nbsp;{{ result.temp_f }}<span class="temp-unit">&deg;F</span>
+        </div>
+        {% if result.feels_like_c is not none %}
+        <div class="card-sub">
+          {{ result.feels_like_label }}: {{ result.feels_like_c }}&deg;C ({{ result.feels_like_f }}&deg;F)
+        </div>
+        {% endif %}
+        {% if result.dewpoint_c is not none %}
+        <div class="card-sub">Dew point: {{ result.dewpoint_c }}&deg;C ({{ result.dewpoint_f }}&deg;F)</div>
+        {% endif %}
+        {% else %}
+        <div class="card-value">Not reported</div>
+        {% endif %}
+      </div>
+
+      <!-- Wind -->
+      <div class="card">
+        <div class="card-label">Wind</div>
+        {% if result.wind %}
+          {% if result.wind.calm %}
+          <div class="card-value">Calm</div>
+          <span class="badge">No wind</span>
+          {% else %}
+          <div class="card-value">
+            From {{ result.wind.direction_text | capitalize }}
+            {% if result.wind.degrees %}({{ result.wind.degrees }}&deg;){% endif %}
+          </div>
+          <div class="card-sub">
+            {{ result.wind.speed_mph }} mph ({{ result.wind.speed_kt }} kt)
+            {% if result.wind.gust_mph %}
+            &mdash; gusting to {{ result.wind.gust_mph }} mph ({{ result.wind.gust_kt }} kt)
+            {% endif %}
+          </div>
+          {% if result.wind.variable_range %}
+          <div class="card-sub">Direction varying {{ result.wind.variable_range }}</div>
+          {% endif %}
+          {% endif %}
+        {% else %}
+        <div class="card-value">Not reported</div>
+        {% endif %}
+      </div>
+
+      <!-- Visibility -->
+      <div class="card">
+        <div class="card-label">Visibility</div>
+        {% if result.visibility %}
+        <div class="card-value">{{ result.visibility | capitalize }}</div>
+        {% else %}
+        <div class="card-value">Not reported</div>
+        {% endif %}
+      </div>
+
+      <!-- Pressure -->
+      <div class="card">
+        <div class="card-label">Pressure</div>
+        {% if result.altimeter %}
+        <div class="card-value">{{ result.altimeter.inhg }} inHg</div>
+        <div class="card-sub">{{ result.altimeter.hpa }} hPa</div>
+        {% else %}
+        <div class="card-value">Not reported</div>
+        {% endif %}
+      </div>
+
+      <!-- Sky conditions -->
+      <div class="card full-width">
+        <div class="card-label">Sky conditions</div>
+        {% if result.cavok %}
+        <div class="card-value">Ceiling and visibility OK &mdash; no cloud below 5,000 ft, no significant weather</div>
+        {% elif result.sky %}
+        <ul class="sky-list">
+          {% for layer in result.sky %}
+          <li>
+            {{ layer.cover }}
+            {% if layer.altitude_ft %}
+              <span>at {{ "{:,}".format(layer.altitude_ft) }} ft</span>
+            {% endif %}
+            {% if layer.cloud_type %}
+              <span>({{ layer.cloud_type }})</span>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="card-value">Not reported</div>
+        {% endif %}
+      </div>
+
+      <!-- Weather phenomena -->
+      {% if result.weather %}
+      <div class="card full-width">
+        <div class="card-label">Weather</div>
+        <div class="card-value">{{ result.weather | join(' &mdash; ') | safe }}</div>
+      </div>
+      {% endif %}
+
+    </div>
+
+    <!-- Raw METAR -->
+    <details class="raw-section">
+      <summary>Show raw METAR</summary>
+      <div class="raw-metar">{{ result.raw }}</div>
+    </details>
+
+    {% endif %}
+  </div>
+
+  <script>
+    (function () {
+      const nameInput = document.getElementById('airport-name-input');
+      const codeInput = document.getElementById('airport-code-input');
+      const dropdown = document.getElementById('ac-dropdown');
+      const form = document.getElementById('main-form');
+
+      let debounceTimer = null;
+      let activeIndex = -1;
+      let currentResults = [];
+      let savedName = nameInput.value;  // value carried over from last submission
+
+      function showDropdown(items) {
+        currentResults = items;
+        activeIndex = -1;
+        dropdown.innerHTML = '';
+
+        if (!items.length) {
+          const el = document.createElement('div');
+          el.className = 'ac-no-results';
+          el.textContent = 'No airports found.';
+          dropdown.appendChild(el);
+        } else {
+          items.forEach(function (apt, i) {
+            const el = document.createElement('div');
+            el.className = 'ac-item';
+            el.setAttribute('role', 'option');
+            el.dataset.index = i;
+
+            const left = document.createElement('div');
+            const nameEl = document.createElement('div');
+            nameEl.className = 'ac-item-name';
+            nameEl.textContent = apt.name;
+            left.appendChild(nameEl);
+
+            if (apt.city) {
+              const cityEl = document.createElement('div');
+              cityEl.className = 'ac-item-city';
+              cityEl.textContent = apt.city + (apt.country ? ', ' + apt.country : '');
+              left.appendChild(cityEl);
+            }
+
+            const codeEl = document.createElement('div');
+            codeEl.className = 'ac-item-code';
+            codeEl.textContent = apt.icao + (apt.iata ? ' / ' + apt.iata : '');
+
+            el.appendChild(left);
+            el.appendChild(codeEl);
+
+            el.addEventListener('mousedown', function (e) {
+              e.preventDefault(); // prevent input blur before we read the value
+              selectAirport(apt);
+            });
+
+            dropdown.appendChild(el);
+          });
+        }
+
+        dropdown.classList.remove('hidden');
+      }
+
+      function hideDropdown() {
+        dropdown.classList.add('hidden');
+        activeIndex = -1;
+        currentResults = [];
+      }
+
+      function setActive(index) {
+        const items = dropdown.querySelectorAll('.ac-item');
+        items.forEach(function (el) { el.classList.remove('active'); });
+        if (index >= 0 && index < items.length) {
+          items[index].classList.add('active');
+          activeIndex = index;
+        } else {
+          activeIndex = -1;
+        }
+      }
+
+      function selectAirport(apt) {
+        codeInput.value = apt.icao;
+        nameInput.value = apt.name + (apt.city ? ' (' + apt.city + ')' : '');
+        hideDropdown();
+        form.submit();
+      }
+
+      nameInput.addEventListener('input', function () {
+        const q = nameInput.value.trim();
+        clearTimeout(debounceTimer);
+
+        if (q.length < 2) {
+          hideDropdown();
+          return;
+        }
+
+        debounceTimer = setTimeout(function () {
+          fetch('/search?q=' + encodeURIComponent(q))
+            .then(function (r) { return r.json(); })
+            .then(showDropdown)
+            .catch(function () { hideDropdown(); });
+        }, 280);
+      });
+
+      nameInput.addEventListener('keydown', function (e) {
+        const items = dropdown.querySelectorAll('.ac-item');
+        if (dropdown.classList.contains('hidden') || !items.length) return;
+
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setActive(Math.min(activeIndex + 1, items.length - 1));
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setActive(Math.max(activeIndex - 1, 0));
+        } else if (e.key === 'Enter') {
+          if (activeIndex >= 0 && currentResults[activeIndex]) {
+            e.preventDefault();
+            selectAirport(currentResults[activeIndex]);
+          }
+        } else if (e.key === 'Escape') {
+          hideDropdown();
+        }
+      });
+
+      // Clear on focus so the user can start typing immediately;
+      // restore the saved name if they click away without selecting anything.
+      nameInput.addEventListener('focus', function () {
+        savedName = nameInput.value;
+        nameInput.value = '';
+        clearTimeout(debounceTimer);
+        hideDropdown();
+      });
+
+      nameInput.addEventListener('blur', function () {
+        setTimeout(function () {
+          hideDropdown();
+          if (!nameInput.value.trim()) {
+            nameInput.value = savedName;
+          }
+        }, 150);
+      });
+
+      // Uppercase the code field on input
+      codeInput.addEventListener('input', function () {
+        codeInput.value = codeInput.value.toUpperCase();
+      });
+    })();
+  </script>
+</body>
+</html>

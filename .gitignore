@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+.venv/
+
+# Generated / cached data
+.airports_cache.json
+
+# IDE / editor
+.claude/
+.vscode/
+.idea/
+*.swp
+*~
