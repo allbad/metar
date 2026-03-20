@@ -31,7 +31,7 @@ METAR Reader turns that into a friendly summary:
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-username/metar.git
+git clone https://github.com/allbad/metar.git
 cd metar
 ```
 
